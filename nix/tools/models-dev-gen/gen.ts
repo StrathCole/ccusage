@@ -63,6 +63,14 @@ type CodexAutoReviewFallback = {
 	model: string;
 };
 
+// `codex-auto-review` is a backend routing label, not "whatever the newest GPT
+// model was on that date". Keep the observed product rollovers explicit so a
+// models.dev refresh cannot silently re-price historical Guardian usage.
+const CODEX_AUTO_REVIEW_MODEL_HISTORY: readonly CodexAutoReviewFallback[] = [
+	{ releasedOn: '2026-07-30', model: 'gpt-5.6-luna' },
+	{ releasedOn: '2026-03-05', model: 'gpt-5.4' },
+];
+
 const { models, providers } = (await generateCatalog('.')) as {
 	models: Record<string, ModelMetadata>;
 	providers: Record<string, Provider>;
@@ -218,8 +226,10 @@ function generateCodexAutoReviewFallbacks(
 			.map(([modelId]) => codexDecimalVersion(openAiModelName(modelId)))
 			.filter((version): version is string => version != null),
 	);
+	const oldestExplicitRollover =
+		CODEX_AUTO_REVIEW_MODEL_HISTORY[CODEX_AUTO_REVIEW_MODEL_HISTORY.length - 1]!.releasedOn;
 
-	return entries
+	const catalogHistory = entries
 		.filter(([modelId, model]) => {
 			const version = baseDecimalVersion(openAiModelName(modelId));
 			if (version == null || !codexDecimalVersions.has(version)) {
@@ -238,7 +248,11 @@ function generateCodexAutoReviewFallbacks(
 			releasedOn: model.release_date!,
 			model: openAiModelName(model.id ?? modelId),
 		}))
-		.sort((left, right) => right.releasedOn.localeCompare(left.releasedOn));
+		.filter((entry) => entry.releasedOn < oldestExplicitRollover);
+
+	return [...CODEX_AUTO_REVIEW_MODEL_HISTORY, ...catalogHistory].sort((left, right) =>
+		right.releasedOn.localeCompare(left.releasedOn),
+	);
 }
 
 function isCodexAutoReviewFallbackCandidate(modelId: string, model: ModelMetadata): boolean {
