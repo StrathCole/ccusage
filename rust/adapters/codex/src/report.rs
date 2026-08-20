@@ -273,6 +273,17 @@ pub(super) fn print_table_from_groups(
         eprintln!("No Codex usage data found.");
         return Ok(());
     }
+
+    if shared.breakdown {
+        breakdown::print_codex_breakdowns(kind, pricing, speed, shared)?;
+        let missing_models = codex_missing_pricing_models(groups, pricing);
+        print_missing_pricing_warnings_for_models(
+            missing_models.iter().map(String::as_str),
+            shared.offline,
+        );
+        return Ok(());
+    }
+
     let first_column = match kind {
         AgentReportKind::Daily => "Date",
         AgentReportKind::Weekly => "Week",
@@ -370,8 +381,5 @@ pub(super) fn print_table_from_groups(
         missing_models.iter().map(String::as_str),
         shared.offline,
     );
-    if shared.breakdown {
-        breakdown::print_codex_breakdowns(kind, pricing, speed, shared)?;
-    }
     Ok(())
 }
