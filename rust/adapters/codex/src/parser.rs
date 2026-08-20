@@ -175,8 +175,6 @@ pub(super) fn visit_codex_session_file(
         None => CodexReplayState::Done,
     };
     let mut visit_filtered = |event: CodexTokenUsageEvent| {
-        // Each arm either returns or advances the state toward `Done`, so this
-        // loop only re-runs to apply the event to the state it switched to.
         loop {
             match replay {
                 CodexReplayState::MatchingParent { prefix, index } => {
@@ -194,9 +192,6 @@ pub(super) fn visit_codex_session_file(
                         };
                         return Ok(());
                     }
-                    // Nothing matched, so the parent stream cannot anchor this
-                    // replay: the log is unavailable, or Codex rewrote the copied
-                    // history. Fall back to the rewritten burst instead.
                     replay = (index == 0)
                         .then(|| detect_rewritten_burst(path))
                         .flatten()
@@ -300,11 +295,6 @@ fn visit_codex_session_entry(
         return Ok(());
     };
     if payload.payload_type.as_deref() == Some("thread_settings_applied") {
-        // A settings event that carries no `service_tier` at all says nothing
-        // about the tier, so the previous one stands. Codex emits such events
-        // for auto-review threads. A tier that is present but unrecognized is
-        // different: it means the tier changed to something unknown, so the
-        // stale value must not be inherited.
         if let Some(recorded) = payload
             .thread_settings
             .as_ref()
@@ -458,9 +448,6 @@ fn visit_codex_exec_usage_event(
 
 fn codex_service_tier(value: &str) -> Option<CodexServiceTier> {
     match value {
-        // Both spellings mean non-priority pricing and occur in the same Codex
-        // version on the same day; which one is written depends on the client
-        // (Codex Desktop writes "standard"), not on the CLI version.
         "default" | "standard" => Some(CodexServiceTier::Standard),
         "fast" | "priority" => Some(CodexServiceTier::Fast),
         _ => None,
@@ -942,10 +929,6 @@ fn raw_or_normalized_codex_timestamp(value: Option<&CodexTimestamp<'_>>) -> Opti
             if codex_timestamp_date(text).is_some() {
                 return Some(text.to_string());
             }
-            // Malformed string: try parsing-based normalization. If that also
-            // fails, return None so the caller's `or_else` chain can try the
-            // next available timestamp field instead of locking in a string
-            // that downstream date resolution will reject.
             normalize_codex_timestamp(value)
         }
         CodexTimestamp::Number(_) => normalize_codex_timestamp(value),
@@ -984,17 +967,11 @@ fn raw_or_normalized_value_timestamp(value: Option<&Value>) -> Option<String> {
         if codex_timestamp_date(text).is_some() {
             return Some(text.to_string());
         }
-        // Malformed string: try parsing-based normalization. If that also
-        // fails, return None so the caller's `or_else` chain can try the
-        // next available timestamp field instead of locking in a string
-        // that downstream date resolution will reject.
         return normalize_value_timestamp(Some(value));
     }
     normalize_value_timestamp(Some(value))
 }
 
-/// Reads a Codex timestamp field that can hold an RFC3339 string or an epoch
-/// number, using the same normalization as session events.
 pub(super) fn codex_value_timestamp(value: Option<&Value>) -> Option<TimestampMs> {
     normalize_value_timestamp(value)
         .as_deref()
@@ -1123,8 +1100,10 @@ mod tests {
         let fallbacks = codex_auto_review_fallback_models();
 
         assert_eq!(fallbacks.len(), 7);
-        assert_eq!(fallbacks[0].released_on, "2026-04-23");
-        assert_eq!(fallbacks[0].model, "gpt-5.5");
+        assert_eq!(fallbacks[0].released_on, "2026-07-30");
+        assert_eq!(fallbacks[0].model, "gpt-5.6-luna");
+        assert_eq!(fallbacks[1].released_on, "2026-03-05");
+        assert_eq!(fallbacks[1].model, "gpt-5.4");
         assert_eq!(fallbacks[6].released_on, "2025-08-07");
         assert_eq!(fallbacks[6].model, "gpt-5");
         assert!(
