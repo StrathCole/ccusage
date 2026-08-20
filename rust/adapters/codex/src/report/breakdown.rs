@@ -283,7 +283,7 @@ fn print_rows<'a>(
         total_row.pop();
     }
     table.push(total_row);
-    table.print()
+    Ok(table.print()?)
 }
 
 fn load_session_attribution() -> Result<HashMap<String, SessionAttribution>> {
