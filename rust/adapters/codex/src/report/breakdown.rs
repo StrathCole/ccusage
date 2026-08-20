@@ -169,9 +169,14 @@ fn print_period_model_breakdown(
         ),
         shared,
     );
-    print_rows(rows.iter().map(|((period, source, model), usage)| {
-        (period.as_str(), source.as_str(), model.as_str(), usage)
-    }), pricing, speed, shared)
+    print_rows(
+        rows.iter().map(|((period, source, model), usage)| {
+            (period.as_str(), source.as_str(), model.as_str(), usage)
+        }),
+        pricing,
+        speed,
+        shared,
+    )
 }
 
 fn print_subagent_model_breakdown(
@@ -181,9 +186,14 @@ fn print_subagent_model_breakdown(
     shared: &SharedArgs,
 ) -> Result<()> {
     print_box_title("Codex Subagent -> Model Usage", shared);
-    print_rows(rows.iter().map(|((source, model), usage)| {
-        ("", source.as_str(), model.as_str(), usage)
-    }), pricing, speed, shared)
+    print_rows(
+        rows.iter().map(|((source, model), usage)| {
+            ("", source.as_str(), model.as_str(), usage)
+        }),
+        pricing,
+        speed,
+        shared,
+    )
 }
 
 fn print_rows<'a>(
@@ -225,6 +235,7 @@ fn print_rows<'a>(
         .with_date_compaction(true);
 
     let mut total = BreakdownUsage::default();
+    let mut total_cost = 0.0;
     for (period, source, model, row) in rows {
         let input = non_cached_input_tokens(row.usage.input_tokens, row.usage.cached_input_tokens);
         let cost = calculate_codex_model_cost(model, &row.usage, pricing, speed);
@@ -250,6 +261,7 @@ fn print_rows<'a>(
         total.usage.output_tokens += row.usage.output_tokens;
         total.usage.reasoning_output_tokens += row.usage.reasoning_output_tokens;
         total.usage.total_tokens += row.usage.total_tokens;
+        total_cost += cost;
     }
     table.separator();
     let mut total_row = vec![
@@ -277,7 +289,7 @@ fn print_rows<'a>(
             Color::Yellow,
         ),
         color(shared, format_number(total.usage.total_tokens), Color::Yellow),
-        String::new(),
+        color(shared, format_currency(total_cost), Color::Yellow),
     ];
     if shared.no_cost {
         total_row.pop();
@@ -314,12 +326,26 @@ fn read_session_attribution(path: &Path) -> Option<SessionAttribution> {
         }
         let payload = value.get("payload")?;
         let source = payload.get("source")?;
-        let subagent = source.get("subAgent").or_else(|| source.get("sub_agent"));
+        let subagent = source
+            .get("subagent")
+            .or_else(|| source.get("subAgent"))
+            .or_else(|| source.get("sub_agent"));
         return match subagent {
             Some(subagent) => Some(SessionAttribution {
                 source: subagent_label(subagent, payload),
                 is_subagent: true,
             }),
+            None if payload.get("thread_source").and_then(Value::as_str) == Some("subagent") => {
+                Some(SessionAttribution {
+                    source: payload
+                        .get("agent_role")
+                        .or_else(|| payload.get("agentRole"))
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .map_or_else(|| "subagent".to_string(), |role| format!("subagent:{role}")),
+                    is_subagent: true,
+                })
+            }
             None => Some(SessionAttribution {
                 source: "main".to_string(),
                 is_subagent: false,
@@ -348,12 +374,22 @@ fn subagent_label(source: &Value, payload: &Value) -> String {
     if let Some(other) = object.get("other").and_then(Value::as_str) {
         return normalize_subagent_name(other);
     }
-    if object.contains_key("thread_spawn") || object.contains_key("threadSpawn") {
-        let role = payload
+    if let Some(thread_spawn) = object
+        .get("thread_spawn")
+        .or_else(|| object.get("threadSpawn"))
+    {
+        let role = thread_spawn
             .get("agent_role")
-            .or_else(|| payload.get("agentRole"))
+            .or_else(|| thread_spawn.get("agentRole"))
             .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty());
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                payload
+                    .get("agent_role")
+                    .or_else(|| payload.get("agentRole"))
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+            });
         return role.map_or_else(
             || "thread-spawn".to_string(),
             |role| format!("thread-spawn:{role}"),
