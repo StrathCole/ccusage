@@ -13,6 +13,8 @@ use crate::{
 
 use super::speed::CodexSpeedPolicy;
 
+mod breakdown;
+
 pub(super) fn report_from_groups(
     groups: &BTreeMap<String, CodexGroup>,
     kind: AgentReportKind,
@@ -368,5 +370,8 @@ pub(super) fn print_table_from_groups(
         missing_models.iter().map(String::as_str),
         shared.offline,
     );
+    if shared.breakdown {
+        breakdown::print_codex_breakdowns(kind, pricing, speed, shared)?;
+    }
     Ok(())
 }
